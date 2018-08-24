@@ -6,16 +6,20 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.classic.spi.LoggingEvent;
 import ch.qos.logback.core.Appender;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.Sets;
 import com.google.common.io.Resources;
 import io.specto.hoverfly.junit.api.HoverflyClient;
 import io.specto.hoverfly.junit.api.HoverflyClientException;
 import io.specto.hoverfly.junit.api.model.ModeArguments;
 import io.specto.hoverfly.junit.api.view.HoverflyInfoView;
+import io.specto.hoverfly.junit.core.model.DelaySettings;
+import io.specto.hoverfly.junit.core.model.RequestResponsePair;
 import io.specto.hoverfly.junit.core.model.Simulation;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.HttpClientBuilder;
+import org.assertj.core.util.Lists;
 import org.junit.After;
 import org.junit.Rule;
 import org.junit.Test;
@@ -30,6 +34,7 @@ import org.zeroturnaround.exec.StartedProcess;
 import javax.net.ssl.SSLContext;
 import java.net.InetSocketAddress;
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.List;
 
 import static io.specto.hoverfly.junit.core.HoverflyConfig.localConfigs;
@@ -151,6 +156,28 @@ public class HoverflyTest {
         Simulation exportedSimulation = hoverfly.getSimulation();
         assertThat(exportedSimulation.getHoverflyData()).isEqualTo(importedSimulation.getHoverflyData());
     }
+
+    @Test
+    public void shouldCombineAndImportMultipleSimulationSources() throws Exception {
+        startDefaultHoverfly();
+        // When
+        Simulation simulation1 = mapper.readValue(Resources.getResource("test-service.json"), Simulation.class);
+        Simulation simulation2 = mapper.readValue(Resources.getResource("test-service-https.json"), Simulation.class);
+        hoverfly.simulate(classpath("test-service.json"), classpath("test-service-https.json"));
+
+        // Then
+        Simulation exportedSimulation = hoverfly.getSimulation();
+        Sets.SetView<RequestResponsePair> expectedData = Sets.union(simulation1.getHoverflyData().getPairs(), simulation2.getHoverflyData().getPairs());
+
+        List<DelaySettings> expectedDelaySettings = new ArrayList<>();
+        expectedDelaySettings.addAll(simulation1.getHoverflyData().getGlobalActions().getDelays());
+        expectedDelaySettings.addAll(simulation2.getHoverflyData().getGlobalActions().getDelays());
+
+        assertThat(exportedSimulation.getHoverflyData().getPairs()).containsExactlyInAnyOrderElementsOf(expectedData);
+        assertThat(exportedSimulation.getHoverflyData().getGlobalActions().getDelays()).containsExactlyInAnyOrderElementsOf(expectedDelaySettings);
+    }
+
+
 
     @Test
     public void shouldThrowExceptionWhenExportSimulationWithoutPath() {

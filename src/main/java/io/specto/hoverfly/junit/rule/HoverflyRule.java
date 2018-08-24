@@ -12,18 +12,8 @@
  */
 package io.specto.hoverfly.junit.rule;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.Map;
-import java.util.Optional;
-import java.util.function.Predicate;
-
-import io.specto.hoverfly.junit.core.Hoverfly;
-import io.specto.hoverfly.junit.core.HoverflyConfig;
-import io.specto.hoverfly.junit.core.HoverflyConstants;
-import io.specto.hoverfly.junit.core.HoverflyMode;
-import io.specto.hoverfly.junit.core.SimulationSource;
-import io.specto.hoverfly.junit.core.SslConfigurer;
+import io.specto.hoverfly.junit.core.*;
+import io.specto.hoverfly.junit.core.model.Simulation;
 import io.specto.hoverfly.junit.dsl.HoverflyDsl;
 import io.specto.hoverfly.junit.dsl.RequestMatcherBuilder;
 import io.specto.hoverfly.junit.dsl.StubServiceBuilder;
@@ -37,9 +27,13 @@ import org.junit.runners.model.Statement;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.*;
+import java.util.function.Predicate;
+
 import static io.specto.hoverfly.junit.core.HoverflyConfig.localConfigs;
 import static io.specto.hoverfly.junit.core.HoverflyMode.*;
-import static io.specto.hoverfly.junit.core.SimulationSource.empty;
 import static io.specto.hoverfly.junit.core.SimulationSource.file;
 import static io.specto.hoverfly.junit.rule.HoverflyRuleUtils.*;
 
@@ -87,13 +81,15 @@ public class HoverflyRule extends ExternalResource {
     private final Hoverfly hoverfly;
     private final HoverflyMode hoverflyMode;
     private Path capturePath;
-    private SimulationSource simulationSource;
+    private List<SimulationSource> simulationSources = new ArrayList<>();
     private boolean enableSimulationPrint;
 
     private HoverflyRule(HoverflyMode hoverflyMode, final SimulationSource simulationSource, final HoverflyConfig hoverflyConfig) {
         this.hoverflyMode = hoverflyMode;
         this.hoverfly = new Hoverfly(hoverflyConfig, hoverflyMode);
-        this.simulationSource = simulationSource;
+        if (simulationSource != null) {
+            this.simulationSources.add(simulationSource);
+        }
     }
 
     private HoverflyRule(final Path capturePath, final HoverflyConfig hoverflyConfig) {
@@ -171,7 +167,7 @@ public class HoverflyRule extends ExternalResource {
      * @return the rule
      */
     public static HoverflyRule inSimulationMode(final HoverflyConfig hoverflyConfig) {
-        return inSimulationMode(empty(), hoverflyConfig);
+        return inSimulationMode(null, hoverflyConfig);
     }
 
     /**
@@ -201,7 +197,7 @@ public class HoverflyRule extends ExternalResource {
      * @return the rule
      */
     public static HoverflyRule inSpyMode(final HoverflyConfig hoverflyConfig) {
-        return inSpyMode(empty(), hoverflyConfig);
+        return inSpyMode(null, hoverflyConfig);
     }
 
     /**
@@ -232,7 +228,7 @@ public class HoverflyRule extends ExternalResource {
      * @return the rule
      */
     public static HoverflyRule inDiffMode(final HoverflyConfig hoverflyConfig) {
-        return inDiffMode(empty(), hoverflyConfig);
+        return inDiffMode(null, hoverflyConfig);
     }
 
     /**
@@ -314,15 +310,20 @@ public class HoverflyRule extends ExternalResource {
         return hoverflyMode;
     }
 
+    // TODO add another simulate method that appends add new sources to the initial simulation source
     /**
      * Changes the Simulation used by {@link Hoverfly}
      * It also reset the journal to ensure verification can be done on the new simulation source.
      *
      * @param simulationSource the simulation
      */
-    public void simulate(SimulationSource simulationSource) {
+    public void simulate(SimulationSource simulationSource, SimulationSource... sources) {
         checkMode(HoverflyMode::allowSimulationImport);
-        this.simulationSource = simulationSource;
+        this.simulationSources = new ArrayList<>();
+        this.simulationSources.add(simulationSource);
+        if (sources.length > 0) {
+            this.simulationSources.addAll(Arrays.asList(sources));
+        }
         importSimulation();
         hoverfly.resetJournal();
     }
@@ -453,16 +454,22 @@ public class HoverflyRule extends ExternalResource {
     }
 
     private void importSimulation() {
-        if (simulationSource == null) {
-            simulationSource = empty();
+        if (simulationSources != null && !simulationSources.isEmpty()) {
+
+            if (simulationSources.size() == 1) {
+                hoverfly.simulate(simulationSources.get(0));
+            } else {
+
+                SimulationSource[] sources = new SimulationSource[simulationSources.size() - 1];
+                sources = simulationSources.subList(1, simulationSources.size()).toArray(sources);
+                hoverfly.simulate(simulationSources.get(0), sources);
+            }
+
+            if (enableSimulationPrint) {
+                Simulation imported = hoverfly.getSimulation();
+                prettyPrintSimulation(imported);
+            }
         }
-
-        hoverfly.simulate(simulationSource);
-
-        if (enableSimulationPrint) {
-            prettyPrintJson(simulationSource.getSimulation());
-        }
-
     }
 
     static class HoverflyRuleException extends RuntimeException {

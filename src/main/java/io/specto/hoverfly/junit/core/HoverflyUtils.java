@@ -14,6 +14,7 @@ package io.specto.hoverfly.junit.core;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import io.specto.hoverfly.junit.core.model.Simulation;
 
@@ -31,6 +32,7 @@ import java.util.Scanner;
 class HoverflyUtils {
 
     private static ObjectWriter OBJECT_WRITER = new ObjectMapper().writerFor(Simulation.class);
+    private static final ObjectReader SIMULATION_READER = new ObjectMapper().readerFor(Simulation.class);
 
     static void checkPortInUse(int port) {
         try (final ServerSocket ignored = new ServerSocket(port, 1, InetAddress.getLoopbackAddress())) {
@@ -58,6 +60,14 @@ class HoverflyUtils {
     static String convertStreamToString(InputStream is) {
         Scanner s = new Scanner(is).useDelimiter("\\A");
         return s.hasNext() ? s.next() : "";
+    }
+
+    static Simulation readSimulationFromString(String simulation) {
+        try {
+            return SIMULATION_READER.readValue(simulation);
+        } catch (IOException e) {
+            throw new IllegalArgumentException("Failed to read simulation data.", e);
+        }
     }
 
     static String writeSimulationAsString(Simulation simulation) {
